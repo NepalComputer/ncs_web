@@ -1,0 +1,156 @@
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const http = require('http');
+
+const imagesDir = path.join(__dirname, '..', 'public', 'images');
+
+// Ensure images directory exists
+if (!fs.existsSync(imagesDir)) {
+  fs.mkdirSync(imagesDir, { recursive: true });
+}
+
+// Products with missing images that need alternative URLs
+const productsToUpdate = [
+  {
+    id: "KB-008",
+    name: "Dell Wired Keyboard KB216",
+    currentUrl: "https://i.dell.com/is/image/DellContent/content/dam/ss2/product-images/dell-client-products/peripherals/keyboards/mice/keyboards/kb216/a/product-silver/ng-keyboard-kb216-black-silver-gallery-1.jpg",
+    alternativeUrls: [
+      "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&auto=format&fit=crop&q=60"
+    ],
+    imageFile: "dell-wired-keyboard-kb216.jpg"
+  },
+  {
+    id: "KB-009",
+    name: "HP K600 Mini Multimedia Keyboard",
+    currentUrl: "https://www.rasanasa.com/public/uploads/all/xlLqPSTPLo43w1bLVH8g8bWzSlAPoWJCHWVHlOmh.jpg",
+    alternativeUrls: [
+      "https://images.unsplash.com/photo-1618384887929-16ec33fab9ef?w=500&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1563191911-e65f8655ebf9?w=500&auto=format&fit=crop&q=60"
+    ],
+    imageFile: "hp-k600-mini-multimedia-keyboard.jpg"
+  },
+  {
+    id: "KB-011",
+    name: "Prolink Multimedia USB Keyboard",
+    currentUrl: "https://prolink2u.com/cdn/shop/products/pkcm-2007.jpg?v=1686821784",
+    alternativeUrls: [
+      "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&auto=format&fit=crop&q=60"
+    ],
+    imageFile: "prolink-multimedia-usb-keyboard.jpg"
+  },
+  {
+    id: "KB-016",
+    name: "AOC GK-410 RGB Mechanical Gaming Keyboard",
+    currentUrl: "https://basitcomputers.com/wp-content/uploads/2025/07/aoc-gk410-rgb-mechanical-gaming-keyboard-with-blue-switch.jpg",
+    alternativeUrls: [
+      "https://images.unsplash.com/photo-1612198188060-c7c2a3b66eae?w=500&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&auto=format&fit=crop&q=60"
+    ],
+    imageFile: "aoc-gk-410-rgb-mechanical-gaming-keyboard.jpg"
+  },
+  {
+    id: "KB-017",
+    name: "Dell Original Keyboard",
+    currentUrl: "https://i.dell.com/is/image/DellContent/content/dam/ss2/product-images/dell-client-products/peripherals/keyboards/mice/keyboards/kb216/a/product-silver/ng-keyboard-kb216-black-silver-gallery-1.jpg",
+    alternativeUrls: [
+      "https://images.unsplash.com/photo-1587829741301-dc798b83add3?w=500&auto=format&fit=crop&q=60",
+      "https://images.unsplash.com/photo-1595225476474-87563907a212?w=500&auto=format&fit=crop&q=60"
+    ],
+    imageFile: "dell-original-keyboard.jpg"
+  }
+];
+
+// Download image function
+function downloadImage(url, filename) {
+  return new Promise((resolve, reject) => {
+    const filepath = path.join(imagesDir, filename);
+    
+    const protocol = url.startsWith('https') ? https : http;
+    
+    const request = protocol.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 30000
+    }, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        const redirectUrl = response.headers.location;
+        console.log(`  ↳ Following redirect to: ${redirectUrl}`);
+        downloadImage(redirectUrl, filename).then(resolve).catch(reject);
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Status ${response.statusCode}`));
+        return;
+      }
+
+      const fileStream = fs.createWriteStream(filepath);
+      response.pipe(fileStream);
+
+      fileStream.on('finish', () => {
+        fileStream.close();
+        resolve({ success: true });
+      });
+
+      fileStream.on('error', (err) => {
+        fs.unlink(filepath, () => {});
+        reject(err);
+      });
+    });
+
+    request.on('error', (err) => {
+      reject(err);
+    });
+
+    request.on('timeout', () => {
+      request.destroy();
+      reject(new Error('Timeout'));
+    });
+  });
+}
+
+// Try downloading with alternative URLs
+async function downloadAlternatives() {
+  console.log('Attempting to download missing keyboard images with alternative URLs...\n');
+  
+  for (const product of productsToUpdate) {
+    let success = false;
+    
+    for (let i = 0; i < product.alternativeUrls.length; i++) {
+      const url = product.alternativeUrls[i];
+      try {
+        console.log(`Trying ${product.id} (${product.name}) - Alt URL ${i + 1}...`);
+        await downloadImage(url, product.imageFile);
+        console.log(`✓ Downloaded: ${product.imageFile}`);
+        success = true;
+        break;
+      } catch (error) {
+        console.log(`  ✗ Failed: ${error.message}`);
+      }
+    }
+    
+    if (!success) {
+      console.log(`✗ All alternatives failed for ${product.id}`);
+    }
+    
+    // Small delay
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  
+  console.log('\nDone!');
+}
+
+// Run the download
+downloadAlternatives().then(() => {
+  process.exit(0);
+}).catch(err => {
+  console.error('Error:', err);
+  process.exit(1);
+});
